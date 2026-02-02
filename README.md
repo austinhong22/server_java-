@@ -1,5 +1,14 @@
 ## 프로젝트
 
+e-커머스 상품 주문 서비스
+
+## 설계 문서
+
+- [시나리오 분석](./docs/scenario.md)
+- [API 명세서](./docs/api/openapi.yaml)
+- [ERD](./docs/erd.md)
+- [인프라 구성도](./docs/infra.md)
+
 ## Getting Started
 
 ### Prerequisites

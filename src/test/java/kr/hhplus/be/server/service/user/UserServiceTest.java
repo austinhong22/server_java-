@@ -96,4 +96,21 @@ class UserServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("사용자를 찾을 수 없습니다.");
     }
+
+    @Test
+    @DisplayName("포인트 충전 실패 - 충전 금액이 0 이하")
+    void chargePointInvalidAmount() {
+        // given
+        Long userId = 1L;
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        // when & then
+        assertThatThrownBy(() -> userService.chargePoint(userId, 0L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("충전 금액은 0보다 커야 합니다.");
+
+        assertThatThrownBy(() -> userService.chargePoint(userId, -1000L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("충전 금액은 0보다 커야 합니다.");
+    }
 }

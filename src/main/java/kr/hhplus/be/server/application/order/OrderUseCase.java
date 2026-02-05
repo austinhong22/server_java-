@@ -33,11 +33,11 @@ public class OrderUseCase {
     private final EventPublisher eventPublisher;
 
     public OrderResult execute(OrderCommand command) {
-        // 1. 사용자 조회 (비관적 락)
-        User user = userRepository.findByIdWithLock(command.getUserId())
+        // 1. 사용자 조회
+        User user = userRepository.findById(command.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
 
-        // 2. 상품 조회 및 재고 확인 (비관적 락)
+        // 2. 상품 조회 및 재고 확인
         List<Product> products = productRepository.findAllByIds(command.getProductIds());
         if (products.size() != command.getProductIds().size()) {
             throw new IllegalArgumentException("일부 상품을 찾을 수 없습니다.");
@@ -52,12 +52,7 @@ public class OrderUseCase {
         // 5. 최종 금액 계산
         Long finalAmount = command.getTotalAmount() - discountAmount;
 
-        // 6. 잔액 확인
-        if (!user.hasEnoughBalance(finalAmount)) {
-            throw new IllegalArgumentException("잔액이 부족합니다.");
-        }
-
-        // 7. 주문 생성
+        // 6. 주문 생성
         Order order = Order.builder()
                 .user(user)
                 .totalAmount(command.getTotalAmount())
@@ -68,7 +63,7 @@ public class OrderUseCase {
         orderItems.forEach(order::addOrderItem);
         orderRepository.save(order);
 
-        // 8. 결제 처리
+        // 7. 결제 처리
         Payment payment = Payment.builder()
                 .order(order)
                 .amount(finalAmount)
@@ -76,14 +71,16 @@ public class OrderUseCase {
         paymentRepository.save(payment);
 
         try {
-            // 9. 결제 게이트웨이를 통한 결제 처리
+            // 8. 결제 게이트웨이를 통한 결제 처리
             paymentGateway.processPayment(user.getId(), finalAmount);
 
-            // 10. 사용자 잔액 차감
-            user.deductBalance(finalAmount);
-            userRepository.save(user);
+            // 9. 조건부 UPDATE를 사용한 사용자 잔액 차감 (동시성 제어)
+            int updatedRows = userRepository.deductBalanceIfAvailable(command.getUserId(), finalAmount);
+            if (updatedRows == 0) {
+                throw new IllegalArgumentException("잔액이 부족합니다.");
+            }
 
-            // 11. 쿠폰 사용 처리
+            // 10. 쿠폰 사용 처리
             if (command.getCouponId() != null) {
                 Coupon coupon = couponRepository.findByIdAndUserId(command.getCouponId(), command.getUserId())
                         .orElseThrow(() -> new IllegalArgumentException("쿠폰을 찾을 수 없습니다."));
@@ -91,13 +88,13 @@ public class OrderUseCase {
                 couponRepository.save(coupon);
             }
 
-            // 12. 주문 완료 처리
+            // 11. 주문 완료 처리
             order.complete();
             payment.complete();
             orderRepository.save(order);
             paymentRepository.save(payment);
 
-            // 13. 데이터 플랫폼에 주문 정보 전송
+            // 12. 데이터 플랫폼에 주문 정보 전송
             eventPublisher.publishOrderCompleted(order);
 
             return OrderResult.success(order.getId(), finalAmount);
@@ -119,21 +116,24 @@ public class OrderUseCase {
                             .findFirst()
                             .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));
 
-                    // 재고 확인 및 차감
-                    Product lockedProduct = productRepository.findByIdWithLock(product.getId())
-                            .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));
+                    // 조건부 UPDATE를 사용한 재고 차감 (동시성 제어)
+                    int updatedRows = productRepository.decreaseStockIfAvailable(
+                            product.getId(), 
+                            itemCommand.getQuantity()
+                    );
 
-                    if (!lockedProduct.hasStock(itemCommand.getQuantity())) {
-                        throw new IllegalArgumentException("재고가 부족합니다: " + lockedProduct.getName());
+                    if (updatedRows == 0) {
+                        throw new IllegalArgumentException("재고가 부족합니다: " + product.getName());
                     }
 
-                    lockedProduct.decreaseStock(itemCommand.getQuantity());
-                    productRepository.save(lockedProduct);
+                    // 업데이트된 상품 정보 조회
+                    Product updatedProduct = productRepository.findById(product.getId())
+                            .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));
 
                     return OrderItem.builder()
-                            .product(lockedProduct)
+                            .product(updatedProduct)
                             .quantity(itemCommand.getQuantity())
-                            .price(lockedProduct.getPrice())
+                            .price(updatedProduct.getPrice())
                             .build();
                 })
                 .toList();

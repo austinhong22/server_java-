@@ -29,11 +29,21 @@ public class Payment extends BaseEntity {
     @Column(nullable = false)
     private PaymentStatus status;
 
+    @Column(unique = true)
+    private String idempotencyKey;
+
     @Builder
     public Payment(Order order, Long amount) {
         this.order = order;
         this.amount = amount;
         this.status = PaymentStatus.PENDING;
+    }
+
+    public Payment(Order order, Long amount, String idempotencyKey) {
+        this.order = order;
+        this.amount = amount;
+        this.status = PaymentStatus.PENDING;
+        this.idempotencyKey = idempotencyKey;
     }
 
     public void complete() {

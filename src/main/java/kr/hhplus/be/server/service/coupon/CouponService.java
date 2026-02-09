@@ -31,8 +31,9 @@ public class CouponService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
 
-        // 선착순 쿠폰 발급 제한 확인 (비관적 락)
-        Long activeCouponCount = couponRepository.countActiveCoupons();
+        // SELECT FOR UPDATE를 사용한 선착순 쿠폰 발급 제한 확인 (동시성 제어)
+        // 비관적 락을 사용하여 동시 발급 시 초과 발급 방지
+        Long activeCouponCount = couponRepository.countActiveCouponsWithLock();
         if (activeCouponCount >= MAX_COUPON_COUNT) {
             throw new IllegalStateException("쿠폰 발급 한도에 도달했습니다.");
         }

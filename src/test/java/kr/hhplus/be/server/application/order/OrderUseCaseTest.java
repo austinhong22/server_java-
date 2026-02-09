@@ -118,10 +118,13 @@ class OrderUseCaseTest {
                 null
         );
 
-        when(userRepository.findByIdWithLock(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(productRepository.findAllByIds(anyList())).thenReturn(Arrays.asList(product1, product2));
-        when(productRepository.findByIdWithLock(1L)).thenReturn(Optional.of(product1));
-        when(productRepository.findByIdWithLock(2L)).thenReturn(Optional.of(product2));
+        when(productRepository.decreaseStockIfAvailable(1L, 2)).thenReturn(1);
+        when(productRepository.decreaseStockIfAvailable(2L, 1)).thenReturn(1);
+        when(productRepository.findById(1L)).thenReturn(Optional.of(product1));
+        when(productRepository.findById(2L)).thenReturn(Optional.of(product2));
+        when(userRepository.deductBalanceIfAvailable(1L, 4000L)).thenReturn(1);
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
             Order order = invocation.getArgument(0);
             try {
@@ -143,13 +146,11 @@ class OrderUseCaseTest {
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getFinalAmount()).isEqualTo(4000L);
 
-        verify(userRepository).findByIdWithLock(1L);
+        verify(userRepository).findById(1L);
         verify(productRepository).findAllByIds(Arrays.asList(1L, 2L));
-        verify(productRepository).findByIdWithLock(1L);
-        verify(productRepository).findByIdWithLock(2L);
-        verify(product1).decreaseStock(2);
-        verify(product2).decreaseStock(1);
-        verify(user).deductBalance(4000L);
+        verify(productRepository).decreaseStockIfAvailable(1L, 2);
+        verify(productRepository).decreaseStockIfAvailable(2L, 1);
+        verify(userRepository).deductBalanceIfAvailable(1L, 4000L);
         verify(paymentGateway).processPayment(1L, 4000L);
         verify(eventPublisher).publishOrderCompleted(any(Order.class));
     }
@@ -167,11 +168,13 @@ class OrderUseCaseTest {
                 1L // 쿠폰 ID
         );
 
-        when(userRepository.findByIdWithLock(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(productRepository.findAllByIds(anyList())).thenReturn(Arrays.asList(product1));
-        when(productRepository.findByIdWithLock(1L)).thenReturn(Optional.of(product1));
+        when(productRepository.decreaseStockIfAvailable(1L, 2)).thenReturn(1);
+        when(productRepository.findById(1L)).thenReturn(Optional.of(product1));
         when(couponRepository.findById(1L)).thenReturn(Optional.of(coupon));
         when(couponRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(coupon));
+        when(userRepository.deductBalanceIfAvailable(1L, 1800L)).thenReturn(1);
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
             Order order = invocation.getArgument(0);
             try {
@@ -210,14 +213,14 @@ class OrderUseCaseTest {
                 null
         );
 
-        when(userRepository.findByIdWithLock(1L)).thenReturn(Optional.empty());
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
 
         // when & then
         assertThatThrownBy(() -> orderUseCase.execute(command))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("사용자를 찾을 수 없습니다.");
 
-        verify(userRepository).findByIdWithLock(1L);
+        verify(userRepository).findById(1L);
         verify(productRepository, never()).findAllByIds(anyList());
     }
 
@@ -236,18 +239,19 @@ class OrderUseCaseTest {
                 null
         );
 
-        when(userRepository.findByIdWithLock(1L)).thenReturn(Optional.of(poorUser));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(poorUser));
         when(productRepository.findAllByIds(anyList())).thenReturn(Arrays.asList(product1));
-        when(productRepository.findByIdWithLock(1L)).thenReturn(Optional.of(product1));
-        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(productRepository.decreaseStockIfAvailable(1L, 2)).thenReturn(1);
+        when(productRepository.findById(1L)).thenReturn(Optional.of(product1));
+        when(userRepository.deductBalanceIfAvailable(1L, 2000L)).thenReturn(0); // 잔액 부족
 
         // when & then
         assertThatThrownBy(() -> orderUseCase.execute(command))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("잔액이 부족합니다.");
 
-        verify(userRepository).findByIdWithLock(1L);
-        verify(poorUser, never()).deductBalance(anyLong());
+        verify(userRepository).findById(1L);
+        verify(userRepository).deductBalanceIfAvailable(1L, 2000L);
         verify(orderRepository, never()).save(any(Order.class));
     }
 
@@ -276,17 +280,17 @@ class OrderUseCaseTest {
                 null
         );
 
-        when(userRepository.findByIdWithLock(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(productRepository.findAllByIds(anyList())).thenReturn(Arrays.asList(outOfStockProduct));
-        when(productRepository.findByIdWithLock(1L)).thenReturn(Optional.of(outOfStockProduct));
+        when(productRepository.decreaseStockIfAvailable(1L, 1)).thenReturn(0); // 재고 부족
 
         // when & then
         assertThatThrownBy(() -> orderUseCase.execute(command))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("재고가 부족합니다");
 
-        verify(userRepository).findByIdWithLock(1L);
-        verify(user, never()).deductBalance(anyLong());
+        verify(userRepository).findById(1L);
+        verify(userRepository, never()).deductBalanceIfAvailable(anyLong(), anyLong());
     }
 
     @Test
@@ -302,9 +306,10 @@ class OrderUseCaseTest {
                 null
         );
 
-        when(userRepository.findByIdWithLock(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(productRepository.findAllByIds(anyList())).thenReturn(Arrays.asList(product1));
-        when(productRepository.findByIdWithLock(1L)).thenReturn(Optional.of(product1));
+        when(productRepository.decreaseStockIfAvailable(1L, 1)).thenReturn(1);
+        when(productRepository.findById(1L)).thenReturn(Optional.of(product1));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
             Order order = invocation.getArgument(0);
             try {
@@ -325,7 +330,7 @@ class OrderUseCaseTest {
                 .hasMessageContaining("결제 처리 중 오류가 발생했습니다");
 
         verify(paymentGateway).processPayment(anyLong(), anyLong());
-        verify(user, never()).deductBalance(anyLong());
+        verify(userRepository, never()).deductBalanceIfAvailable(anyLong(), anyLong());
         verify(eventPublisher, never()).publishOrderCompleted(any(Order.class));
     }
 }

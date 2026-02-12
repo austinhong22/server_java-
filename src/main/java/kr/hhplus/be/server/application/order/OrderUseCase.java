@@ -57,53 +57,52 @@ public class OrderUseCase {
 		// 사용자별 주문 락을 사용하여 동일 사용자의 중복 주문을 방지
 		// 여러 상품을 주문하는 경우에도 사용자 단위로 직렬화하여 데드락 방지
 		String userOrderLockKey = "order:user:" + command.getUserId();
-		
+
 		return distributedLock.executeWithLock(
-			userOrderLockKey,
-			LOCK_WAIT_TIME,
-			LOCK_LEASE_TIME,
-			() -> executeOrder(command)
-		);
+				userOrderLockKey,
+				LOCK_WAIT_TIME,
+				LOCK_LEASE_TIME,
+				() -> executeOrder(command));
 	}
 
 	@Transactional
 	private OrderResult executeOrder(OrderCommand command) {
-        // 1. 사용자 조회
-        User user = userRepository.findById(command.getUserId())
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+		// 1. 사용자 조회
+		User user = userRepository.findById(command.getUserId())
+				.orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
 
-        // 2. 상품 조회 및 재고 확인
-        List<Product> products = productRepository.findAllByIds(command.getProductIds());
-        if (products.size() != command.getProductIds().size()) {
-            throw new IllegalArgumentException("일부 상품을 찾을 수 없습니다.");
-        }
+		// 2. 상품 조회 및 재고 확인
+		List<Product> products = productRepository.findAllByIds(command.getProductIds());
+		if (products.size() != command.getProductIds().size()) {
+			throw new IllegalArgumentException("일부 상품을 찾을 수 없습니다.");
+		}
 
-        // 3. 재고 차감 및 주문 항목 생성
-        List<OrderItem> orderItems = createOrderItems(products, command.getOrderItems());
+		// 3. 재고 차감 및 주문 항목 생성
+		List<OrderItem> orderItems = createOrderItems(products, command.getOrderItems());
 
-        // 4. 쿠폰 할인 계산
-        Long discountAmount = calculateDiscount(command.getCouponId(), command.getTotalAmount());
+		// 4. 쿠폰 할인 계산
+		Long discountAmount = calculateDiscount(command.getCouponId(), command.getTotalAmount());
 
-        // 5. 최종 금액 계산
-        Long finalAmount = command.getTotalAmount() - discountAmount;
+		// 5. 최종 금액 계산
+		Long finalAmount = command.getTotalAmount() - discountAmount;
 
-        // 6. 주문 생성
-        Order order = Order.builder()
-                .user(user)
-                .totalAmount(command.getTotalAmount())
-                .discountAmount(discountAmount)
-                .finalAmount(finalAmount)
-                .build();
+		// 6. 주문 생성
+		Order order = Order.builder()
+				.user(user)
+				.totalAmount(command.getTotalAmount())
+				.discountAmount(discountAmount)
+				.finalAmount(finalAmount)
+				.build();
 
-        orderItems.forEach(order::addOrderItem);
-        orderRepository.save(order);
+		orderItems.forEach(order::addOrderItem);
+		orderRepository.save(order);
 
-        // 7. 결제 처리
-        Payment payment = Payment.builder()
-                .order(order)
-                .amount(finalAmount)
-                .build();
-        paymentRepository.save(payment);
+		// 7. 결제 처리
+		Payment payment = Payment.builder()
+				.order(order)
+				.amount(finalAmount)
+				.build();
+		paymentRepository.save(payment);
 
 		try {
 			// 8. 결제 게이트웨이를 통한 결제 처리
@@ -112,34 +111,33 @@ public class OrderUseCase {
 			// 9. 사용자별 잔액 락을 사용하여 잔액 차감 시 동시성 제어
 			String balanceLockKey = "user:balance:" + command.getUserId();
 			distributedLock.executeWithLock(
-				balanceLockKey,
-				LOCK_WAIT_TIME,
-				LOCK_LEASE_TIME,
-				() -> {
-					// 조건부 UPDATE를 사용한 사용자 잔액 차감 (동시성 제어)
-					// 분산락과 DB 트랜잭션을 함께 사용하여 이중 보호
-					int updatedRows = userRepository.deductBalanceIfAvailable(command.getUserId(), finalAmount);
-					if (updatedRows == 0) {
-						throw new IllegalArgumentException("잔액이 부족합니다.");
-					}
-				}
-			);
+					balanceLockKey,
+					LOCK_WAIT_TIME,
+					LOCK_LEASE_TIME,
+					() -> {
+						// 조건부 UPDATE를 사용한 사용자 잔액 차감 (동시성 제어)
+						// 분산락과 DB 트랜잭션을 함께 사용하여 이중 보호
+						int updatedRows = userRepository.deductBalanceIfAvailable(command.getUserId(), finalAmount);
+						if (updatedRows == 0) {
+							throw new IllegalArgumentException("잔액이 부족합니다.");
+						}
+					});
 
 			// 10. 쿠폰 사용 처리
 			if (command.getCouponId() != null) {
 				// 쿠폰별 사용 락을 사용하여 쿠폰 중복 사용 방지
 				String couponLockKey = "coupon:use:" + command.getCouponId();
 				distributedLock.executeWithLock(
-					couponLockKey,
-					LOCK_WAIT_TIME,
-					LOCK_LEASE_TIME,
-					() -> {
-						Coupon coupon = couponRepository.findByIdAndUserId(command.getCouponId(), command.getUserId())
-							.orElseThrow(() -> new IllegalArgumentException("쿠폰을 찾을 수 없습니다."));
-						coupon.use();
-						couponRepository.save(coupon);
-					}
-				);
+						couponLockKey,
+						LOCK_WAIT_TIME,
+						LOCK_LEASE_TIME,
+						() -> {
+							Coupon coupon = couponRepository
+									.findByIdAndUserId(command.getCouponId(), command.getUserId())
+									.orElseThrow(() -> new IllegalArgumentException("쿠폰을 찾을 수 없습니다."));
+							coupon.use();
+							couponRepository.save(coupon);
+						});
 			}
 
 			// 11. 주문 완료 처리
@@ -178,48 +176,46 @@ public class OrderUseCase {
 	private List<OrderItem> createOrderItems(List<Product> products, List<OrderItemCommand> orderItemCommands) {
 		// 데드락 방지를 위해 상품 ID를 정렬하여 락 획득 순서를 보장
 		List<OrderItemCommand> sortedCommands = orderItemCommands.stream()
-			.sorted((a, b) -> Long.compare(a.getProductId(), b.getProductId()))
-			.collect(Collectors.toList());
+				.sorted((a, b) -> Long.compare(a.getProductId(), b.getProductId()))
+				.collect(Collectors.toList());
 
 		return sortedCommands.stream()
-			.map(itemCommand -> {
-				Product product = products.stream()
-					.filter(p -> p.getId().equals(itemCommand.getProductId()))
-					.findFirst()
-					.orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));
-
-				// 상품별 재고 락을 사용하여 재고 차감 시 동시성 제어
-				String stockLockKey = "product:stock:" + product.getId();
-				
-				return distributedLock.executeWithLock(
-					stockLockKey,
-					LOCK_WAIT_TIME,
-					LOCK_LEASE_TIME,
-					() -> {
-						// 조건부 UPDATE를 사용한 재고 차감 (동시성 제어)
-						// 분산락과 DB 트랜잭션을 함께 사용하여 이중 보호
-						int updatedRows = productRepository.decreaseStockIfAvailable(
-							product.getId(),
-							itemCommand.getQuantity()
-						);
-
-						if (updatedRows == 0) {
-							throw new IllegalArgumentException("재고가 부족합니다: " + product.getName());
-						}
-
-						// 업데이트된 상품 정보 조회
-						Product updatedProduct = productRepository.findById(product.getId())
+				.map(itemCommand -> {
+					Product product = products.stream()
+							.filter(p -> p.getId().equals(itemCommand.getProductId()))
+							.findFirst()
 							.orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));
 
-						return OrderItem.builder()
-							.product(updatedProduct)
-							.quantity(itemCommand.getQuantity())
-							.price(updatedProduct.getPrice())
-							.build();
-					}
-				);
-			})
-			.collect(Collectors.toList());
+					// 상품별 재고 락을 사용하여 재고 차감 시 동시성 제어
+					String stockLockKey = "product:stock:" + product.getId();
+
+					return distributedLock.executeWithLock(
+							stockLockKey,
+							LOCK_WAIT_TIME,
+							LOCK_LEASE_TIME,
+							() -> {
+								// 조건부 UPDATE를 사용한 재고 차감 (동시성 제어)
+								// 분산락과 DB 트랜잭션을 함께 사용하여 이중 보호
+								int updatedRows = productRepository.decreaseStockIfAvailable(
+										product.getId(),
+										itemCommand.getQuantity());
+
+								if (updatedRows == 0) {
+									throw new IllegalArgumentException("재고가 부족합니다: " + product.getName());
+								}
+
+								// 업데이트된 상품 정보 조회
+								Product updatedProduct = productRepository.findById(product.getId())
+										.orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다."));
+
+								return OrderItem.builder()
+										.product(updatedProduct)
+										.quantity(itemCommand.getQuantity())
+										.price(updatedProduct.getPrice())
+										.build();
+							});
+				})
+				.collect(Collectors.toList());
 	}
 
 	private Long calculateDiscount(Long couponId, Long totalAmount) {
@@ -228,7 +224,7 @@ public class OrderUseCase {
 		}
 
 		Coupon coupon = couponRepository.findById(couponId)
-			.orElseThrow(() -> new IllegalArgumentException("쿠폰을 찾을 수 없습니다."));
+				.orElseThrow(() -> new IllegalArgumentException("쿠폰을 찾을 수 없습니다."));
 
 		return coupon.calculateDiscount(totalAmount);
 	}

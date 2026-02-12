@@ -12,8 +12,9 @@ import kr.hhplus.be.server.domain.user.UserRepository;
 import kr.hhplus.be.server.domain.coupon.Coupon;
 import kr.hhplus.be.server.domain.coupon.CouponRepository;
 import kr.hhplus.be.server.infrastructure.payment.PaymentGateway;
-import kr.hhplus.be.server.infrastructure.event.EventPublisher;
+import kr.hhplus.be.server.infrastructure.event.OrderCompletedEvent;
 import kr.hhplus.be.server.infrastructure.lock.DistributedLock;
+import org.springframework.context.ApplicationEventPublisher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +35,7 @@ public class OrderUseCase {
 	private final PaymentRepository paymentRepository;
 	private final CouponRepository couponRepository;
 	private final PaymentGateway paymentGateway;
-	private final EventPublisher eventPublisher;
+	private final ApplicationEventPublisher eventPublisher;
 	private final DistributedLock distributedLock;
 
 	/**
@@ -147,8 +148,16 @@ public class OrderUseCase {
 			orderRepository.save(order);
 			paymentRepository.save(payment);
 
-			// 12. 데이터 플랫폼에 주문 정보 전송
-			eventPublisher.publishOrderCompleted(order);
+			// 12. 주문 완료 이벤트 발행 (트랜잭션과 분리)
+			OrderCompletedEvent event = OrderCompletedEvent.builder()
+					.source(this)
+					.orderId(order.getId())
+					.userId(order.getUser().getId())
+					.finalAmount(order.getFinalAmount())
+					.totalAmount(order.getTotalAmount())
+					.discountAmount(order.getDiscountAmount())
+					.build();
+			eventPublisher.publishEvent(event);
 
 			return OrderResult.success(order.getId(), finalAmount);
 		} catch (Exception e) {

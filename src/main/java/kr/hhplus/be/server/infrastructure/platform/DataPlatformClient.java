@@ -15,4 +15,10 @@ public interface DataPlatformClient {
      * @param reservationData 예약 데이터 (JSON 문자열)
      */
     void sendReservationData(String reservationData);
+
+    /**
+     * 맛집 검색 정보를 데이터 플랫폼에 전송
+     * @param searchData 검색 데이터 (JSON 문자열)
+     */
+    void sendSearchData(String searchData);
 }

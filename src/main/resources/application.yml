@@ -21,6 +21,20 @@ spring:
       hibernate.timezone.default_storage: NORMALIZE_UTC
       hibernate.jdbc.time_zone: UTC
 
+app:
+  kafka:
+    enabled: false
+    bootstrap-servers: localhost:9092,localhost:9093,localhost:9094
+    topics:
+      order-events: order-events
+      reservation-events: reservation-events
+      restaurant-search-events: restaurant-search-events
+    consumer-groups:
+      order-data-platform: order-data-platform-consumer
+      reservation-data-platform: reservation-data-platform-consumer
+      restaurant-search-data-platform: restaurant-search-data-platform-consumer
+      order-ranking: order-ranking-consumer
+
 ---
 spring.config.activate.on-profile: local, test
 
@@ -34,3 +48,21 @@ spring:
       host: localhost
       port: 6379
       timeout: 2000ms
+
+---
+spring.config.activate.on-profile: kafka
+
+app:
+  kafka:
+    enabled: true
+
+spring:
+  kafka:
+    bootstrap-servers: ${app.kafka.bootstrap-servers}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest

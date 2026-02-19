@@ -26,4 +26,13 @@ public class ProductController {
         ProductResponse product = productService.getProduct(productId);
         return ResponseEntity.ok(product);
     }
+
+    @GetMapping("/search")
+    public ResponseEntity<List<ProductResponse>> searchProducts(
+            @RequestParam String keyword,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId
+    ) {
+        List<ProductResponse> products = productService.searchProducts(keyword, userId);
+        return ResponseEntity.ok(products);
+    }
 }

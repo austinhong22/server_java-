@@ -20,6 +20,7 @@ public class DataPlatformClientImpl implements DataPlatformClient {
 
     private static final String ORDER_ENDPOINT = "/api/data-platform/orders";
     private static final String RESERVATION_ENDPOINT = "/api/data-platform/reservations";
+    private static final String SEARCH_ENDPOINT = "/api/data-platform/searches";
 
     @Value("${data-platform.base-url:http://localhost:8080}")
     private String baseUrl;
@@ -78,6 +79,31 @@ public class DataPlatformClientImpl implements DataPlatformClient {
             }
         } catch (Exception e) {
             log.error("데이터 플랫폼에 예약 정보 전송 중 오류 발생: data={}, error={}", reservationData, e.getMessage(), e);
+            throw new RuntimeException("데이터 플랫폼 전송 중 오류 발생", e);
+        }
+    }
+
+    @Override
+    public void sendSearchData(String searchData) {
+        try {
+            String url = baseUrl + SEARCH_ENDPOINT;
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(searchData))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                log.info("데이터 플랫폼에 검색 정보 전송 성공: status={}, data={}", response.statusCode(), searchData);
+            } else {
+                log.warn("데이터 플랫폼에 검색 정보 전송 실패: status={}, response={}", response.statusCode(), response.body());
+                throw new RuntimeException("데이터 플랫폼 전송 실패: " + response.statusCode());
+            }
+        } catch (Exception e) {
+            log.error("데이터 플랫폼에 검색 정보 전송 중 오류 발생: data={}, error={}", searchData, e.getMessage(), e);
             throw new RuntimeException("데이터 플랫폼 전송 중 오류 발생", e);
         }
     }

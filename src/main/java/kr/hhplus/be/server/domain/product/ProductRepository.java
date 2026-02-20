@@ -19,6 +19,8 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Query("SELECT p FROM Product p WHERE p.id IN :ids")
     List<Product> findAllByIds(@Param("ids") List<Long> ids);
 
+    List<Product> findByNameContainingIgnoreCase(String keyword);
+
     /**
      * 조건부 UPDATE를 사용한 재고 차감 (동시성 제어)
      * 재고가 충분한 경우에만 차감하고, 영향받은 행 수를 반환
